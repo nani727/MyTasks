@@ -87,6 +87,12 @@ body.dragging{user-select:none;-webkit-user-select:none}
 .pick{display:flex;gap:6px}
 .pick button{flex:1;padding:10px 4px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:16px;font-weight:600;color:var(--sub)}
 .pick button.on{border-color:var(--pri);background:var(--pri);color:var(--pri-t)}
+
+.search{position:relative;margin:4px 0 6px}
+.search input{padding-right:40px;background:var(--card)}
+#qClear{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;background:none;color:var(--sub);font-size:16px}
+mark{background:rgba(255,200,0,.45);color:inherit;border-radius:3px;padding:0 1px}
+body.searching .seg,body.searching .chips{opacity:.4;pointer-events:none}
 </style>
 </head>
 <body>
@@ -94,6 +100,11 @@ body.dragging{user-select:none;-webkit-user-select:none}
   <header>
     <div><h1>할 일</h1><div class="sub-txt" id="summary"></div></div>
   </header>
+
+  <div class="search">
+    <input id="q" type="search" placeholder="검색 (제목·메모)" autocomplete="off" enterkeyhint="search">
+    <button type="button" id="qClear" aria-label="검색 지우기" hidden>✕</button>
+  </div>
 
   <nav class="seg" id="statusSeg" aria-label="상태 보기">
     <button data-v="active" class="on">진행</button>
@@ -277,11 +288,12 @@ function cycle(t){setStatus(t,STATUSES[(STATUSES.indexOf(t.status)+1)%STATUSES.l
 
 /* ---------- 화면 ---------- */
 var statusFilter='active', catFilter='전체';
+var query='', terms=[];   // 검색어
 var selectedId=null;      // 탭해서 버튼(편집/보조 업무 추가)이 열린 항목
 var openMemo={};          // 펼쳐진 메모 id
 
 function cmp(a,b){
-  if(statusFilter==='done'){return (b.doneAt||'').localeCompare(a.doneAt||'')}
+  if(statusFilter==='done'&&!query){return (b.doneAt||'').localeCompare(a.doneAt||'')}
   var ad=a.due||'9999-99-99', bd=b.due||'9999-99-99';
   return ad<bd?-1:ad>bd?1:tasks.indexOf(a)-tasks.indexOf(b);
 }
@@ -300,13 +312,14 @@ function node(t,depth){
   var body=document.createElement('div'); body.className='body';
   body.addEventListener('click',function(){if(blocked())return;selectedId=(selectedId===t.id?null:t.id);render()});
 
-  var title=document.createElement('div'); title.className='t'; title.textContent=t.title;
+  var title=document.createElement('div'); title.className='t'; hl(title,t.title);
   body.appendChild(title);
 
   if(t.memo){
     var m=document.createElement('div');
-    m.className='memo '+(openMemo[t.id]?'open':'clamp');
-    m.textContent=t.memo;
+    var memoHit=terms.length&&terms.some(function(k){return t.memo.toLowerCase().indexOf(k)>=0});
+    m.className='memo '+((openMemo[t.id]||memoHit)?'open':'clamp'); // 검색어가 메모에 있으면 펼쳐서 보여줌
+    hl(m,t.memo);
     m.addEventListener('click',function(e){e.stopPropagation();if(blocked())return;openMemo[t.id]=!openMemo[t.id];render()});
     body.appendChild(m);
   }
@@ -352,6 +365,7 @@ function node(t,depth){
   }
 
   var ch=kids(t.id);
+  if(query)ch=ch.filter(inSearch);
   if(ch.length){
     var ul=document.createElement('ul'); ul.className='sub'+(depth>=3?' flat':'');
     ch.forEach(function(c){ul.appendChild(node(c,depth+1))});
@@ -364,6 +378,7 @@ function render(){
   var list=$('#list'); list.textContent='';
   var tops=tasks.filter(function(t){
     if(t.parent)return false;
+    if(query)return inSearch(t);
     var okS=statusFilter==='all'||(statusFilter==='active'?isActive(t):!isActive(t));
     var okC=catFilter==='전체'||t.cat===catFilter;
     return okS&&okC;
@@ -377,12 +392,12 @@ function render(){
 
   var empty=$('#empty');
   empty.hidden=tops.length>0;
-  empty.textContent=statusFilter==='done'?'완료한 항목이 없습니다.':'할 일이 없습니다. ＋ 버튼으로 추가하세요.';
+  empty.textContent=query?'검색 결과가 없습니다.':(statusFilter==='done'?'완료한 항목이 없습니다.':'할 일이 없습니다. ＋ 버튼으로 추가하세요.');
 
   var open=tasks.filter(function(t){return t.status!=='완료'});
   var over=open.filter(function(t){return t.due&&diffDays(t.due)<0}).length;
   var td=open.filter(function(t){return t.due&&diffDays(t.due)===0}).length;
-  $('#summary').textContent='남은 일 '+open.length+'건'+(td?' · 오늘 '+td:'')+(over?' · 기한 지남 '+over:'');
+  $('#summary').textContent=query?'검색 결과 '+tasks.filter(selfMatch).length+'건 (전체 업무에서 검색)':'남은 일 '+open.length+'건'+(td?' · 오늘 '+td:'')+(over?' · 기한 지남 '+over:'');
   renderBackup();
 }
 
@@ -464,12 +479,12 @@ function blocked(){return Date.now()<suppressUntil}
 
 function bindDrag(card,t){
   card.addEventListener('touchstart',function(e){
-    if(e.touches.length!==1||e.target.closest('.st'))return;
+    if(query||e.touches.length!==1||e.target.closest('.st'))return;
     lastTouch=Date.now();
     beginPress(card,t,e.touches[0].clientX,e.touches[0].clientY);
   },{passive:true});
   card.addEventListener('mousedown',function(e){
-    if(e.button!==0||Date.now()-lastTouch<800||e.target.closest('.st'))return;
+    if(query||e.button!==0||Date.now()-lastTouch<800||e.target.closest('.st'))return;
     beginPress(card,t,e.clientX,e.clientY);
   });
   card.addEventListener('contextmenu',function(e){e.preventDefault()});
@@ -614,6 +629,33 @@ function applyMove(t,res){
   }
   selectedId=null; save(); render();
 }
+
+/* ---------- 검색 ---------- */
+function selfMatch(t){
+  if(!terms.length)return true;
+  var h=(t.title+' '+(t.memo||'')).toLowerCase();
+  return terms.every(function(k){return h.indexOf(k)>=0});
+}
+function inSearch(t){return selfMatch(t)||descendants(t.id).some(selfMatch)} // 하위에서 찾았으면 상위도 함께 표시
+function esc(x){return x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function hl(el,text){
+  if(!terms.length){el.textContent=text;return}
+  var re=new RegExp('('+terms.map(esc).join('|')+')','gi');
+  text.split(re).forEach(function(part,i){
+    if(i%2===1){var m=document.createElement('mark');m.textContent=part;el.appendChild(m)}
+    else if(part){el.appendChild(document.createTextNode(part))}
+  });
+}
+function setQuery(v){
+  query=v.trim();
+  terms=query?query.toLowerCase().split(/\s+/):[];
+  document.body.classList.toggle('searching',!!query);
+  $('#qClear').hidden=!v;
+  selectedId=null;
+  render();
+}
+$('#q').addEventListener('input',function(){setQuery(this.value)});
+$('#qClear').addEventListener('click',function(){$('#q').value='';setQuery('');$('#q').focus()});
 
 /* ---------- 필터 ---------- */
 function bindSeg(sel,cb){
