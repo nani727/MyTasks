@@ -65,7 +65,7 @@ dialog{border:0;border-radius:18px;padding:0;width:min(92vw,420px);background:va
 dialog::backdrop{background:rgba(0,0,0,.45)}
 form{padding:18px;display:flex;flex-direction:column;gap:12px}
 h2{font-size:17px;margin:0}
-#dParent{margin-top:-6px;word-break:break-word}
+#dParent{word-break:break-word}
 label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--sub);font-weight:600}
 input,select,textarea{font:inherit;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);width:100%}
 textarea{resize:none;line-height:1.4}
@@ -74,7 +74,7 @@ textarea{resize:none;line-height:1.4}
 .btns{display:flex;gap:8px;margin-top:4px}
 .btns button{flex:1;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:700}
 .btns .save{background:var(--pri);color:var(--pri-t);border-color:var(--pri)}
-.btns .del{color:var(--warn);flex:none}
+.btns .del{color:var(--warn)}
 </style>
 </head>
 <body>
@@ -110,6 +110,10 @@ textarea{resize:none;line-height:1.4}
 <dialog id="dlg">
   <form id="form" autocomplete="off">
     <h2 id="dTitle">새 할 일</h2>
+    <div class="btns">
+      <button type="button" id="fCancel">취소</button>
+      <button type="submit" class="save">저장</button>
+    </div>
     <div class="sub-txt" id="dParent" hidden></div>
     <label>할 일
       <input id="fTitle" required maxlength="200" placeholder="예: 보고서 초안 작성">
@@ -139,10 +143,8 @@ textarea{resize:none;line-height:1.4}
         </select>
       </label>
     </div>
-    <div class="btns">
+    <div class="btns" id="delRow">
       <button type="button" class="del" id="fDel">삭제</button>
-      <button type="button" id="fCancel">취소</button>
-      <button type="submit" class="save">저장</button>
     </div>
   </form>
 </dialog>
@@ -380,14 +382,14 @@ function openDlg(t,parent){
   $('#fTitle').value=t?t.title:'';
   $('#fMemo').value=t?(t.memo||''):'';
   $('#fDue').value=t?(t.due||''):(parent?'':today()); // 새 할 일은 마감일 기본값=오늘 (보조 업무는 비워 둠)
-  $('#fCat').value=t?t.cat:(catFilter!=='전체'?catFilter:CATS[0]);
+  $('#fCat').value=t?t.cat:(catFilter==='공문'?'공문':'기타');
   $('#fStatus').value=t?t.status:'진행 중';
   $('#fRepeat').value=t?(t.repeat||'none'):'none';
   $('#lCat').style.display=isSub?'none':'';
   $('#lRepeat').style.display=isSub?'none':'';
   $('#row1').classList.toggle('single',isSub);
   $('#row2').classList.toggle('single',isSub);
-  $('#fDel').style.display=t?'':'none';
+  $('#delRow').style.display=t?'':'none';
   if(typeof dlg.showModal==='function'){dlg.showModal()}else{dlg.setAttribute('open','')}
   if(!t){setTimeout(function(){$('#fTitle').focus()},50)}
 }
