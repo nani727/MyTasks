@@ -1,6 +1,6 @@
 // 오프라인 실행용 서비스 워커.
 // 같은 사이트의 앱 파일만 캐시하며, 할 일 데이터(localStorage)는 건드리지 않습니다.
-const CACHE = 'todo-pwa-v5';
+const CACHE = 'todo-pwa-v6';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {

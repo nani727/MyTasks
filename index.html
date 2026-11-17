@@ -75,6 +75,18 @@ textarea{resize:none;line-height:1.4}
 .btns button{flex:1;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:700}
 .btns .save{background:var(--pri);color:var(--pri-t);border-color:var(--pri)}
 .btns .del{color:var(--warn)}
+
+.card{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.card.lifted{opacity:.35}
+.ghost{position:fixed;z-index:1000;margin:0;pointer-events:none;box-shadow:0 10px 28px rgba(0,0,0,.35);transform:scale(1.03);opacity:.96}
+#dropInd{position:fixed;z-index:999;pointer-events:none}
+#dropInd.ring{border:2px solid var(--pri);border-radius:14px}
+#dropInd.line{height:4px;border-radius:2px;background:var(--pri)}
+body.dragging{user-select:none;-webkit-user-select:none}
+.fld{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--sub);font-weight:600}
+.pick{display:flex;gap:6px}
+.pick button{flex:1;padding:10px 4px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:16px;font-weight:600;color:var(--sub)}
+.pick button.on{border-color:var(--pri);background:var(--pri);color:var(--pri-t)}
 </style>
 </head>
 <body>
@@ -125,9 +137,12 @@ textarea{resize:none;line-height:1.4}
       <label>마감일
         <input id="fDue" type="date">
       </label>
-      <label id="lCat">분류
-        <select id="fCat"><option>공문</option><option>기타</option></select>
-      </label>
+      <div class="fld" id="lCat">분류
+        <div class="pick" id="fCat" role="group" aria-label="분류">
+          <button type="button" data-v="공문">공문</button>
+          <button type="button" data-v="기타">기타</button>
+        </div>
+      </div>
     </div>
     <div class="row" id="row2">
       <label>진행 상태
@@ -268,7 +283,7 @@ var openMemo={};          // 펼쳐진 메모 id
 function cmp(a,b){
   if(statusFilter==='done'){return (b.doneAt||'').localeCompare(a.doneAt||'')}
   var ad=a.due||'9999-99-99', bd=b.due||'9999-99-99';
-  return ad<bd?-1:ad>bd?1:(a.created||'').localeCompare(b.created||'');
+  return ad<bd?-1:ad>bd?1:tasks.indexOf(a)-tasks.indexOf(b);
 }
 function btn(text,fn){
   var b=document.createElement('button'); b.type='button'; b.textContent=text;
@@ -280,9 +295,10 @@ function node(t,depth){
   var li=document.createElement('li'); li.className='node';
   var card=document.createElement('div');
   card.className='card'+(t.status==='완료'?' done':'')+(selectedId===t.id?' sel':'');
+  card.__t=t; bindDrag(card,t);
 
   var body=document.createElement('div'); body.className='body';
-  body.addEventListener('click',function(){selectedId=(selectedId===t.id?null:t.id);render()});
+  body.addEventListener('click',function(){if(blocked())return;selectedId=(selectedId===t.id?null:t.id);render()});
 
   var title=document.createElement('div'); title.className='t'; title.textContent=t.title;
   body.appendChild(title);
@@ -291,7 +307,7 @@ function node(t,depth){
     var m=document.createElement('div');
     m.className='memo '+(openMemo[t.id]?'open':'clamp');
     m.textContent=t.memo;
-    m.addEventListener('click',function(e){e.stopPropagation();openMemo[t.id]=!openMemo[t.id];render()});
+    m.addEventListener('click',function(e){e.stopPropagation();if(blocked())return;openMemo[t.id]=!openMemo[t.id];render()});
     body.appendChild(m);
   }
 
@@ -324,7 +340,7 @@ function node(t,depth){
   var st=document.createElement('button'); st.type='button';
   st.className='st s'+STATUSES.indexOf(t.status); st.textContent=t.status;
   st.setAttribute('aria-label','상태 변경: 현재 '+t.status);
-  st.addEventListener('click',function(){cycle(t)});
+  st.addEventListener('click',function(){if(blocked())return;cycle(t)});
 
   card.appendChild(body); card.appendChild(st); li.appendChild(card);
 
@@ -371,7 +387,12 @@ function render(){
 }
 
 /* ---------- 입력창 (새 업무 / 편집 / 보조 업무 추가) ---------- */
-var dlg=$('#dlg'), editing=null, parentTask=null;
+var dlg=$('#dlg'), editing=null, parentTask=null, curCat='기타';
+function setCat(v){
+  curCat=v;
+  Array.prototype.forEach.call($('#fCat').children,function(b){b.classList.toggle('on',b.dataset.v===v)});
+}
+$('#fCat').addEventListener('click',function(e){var b=e.target.closest('button');if(b)setCat(b.dataset.v)});
 function openDlg(t,parent){
   editing=t||null; parentTask=parent||null;
   var isSub=t?!!t.parent:!!parent;
@@ -382,7 +403,7 @@ function openDlg(t,parent){
   $('#fTitle').value=t?t.title:'';
   $('#fMemo').value=t?(t.memo||''):'';
   $('#fDue').value=t?(t.due||''):(parent?'':today()); // 새 할 일은 마감일 기본값=오늘 (보조 업무는 비워 둠)
-  $('#fCat').value=t?t.cat:(catFilter==='공문'?'공문':'기타');
+  setCat(t?t.cat:(catFilter==='공문'?'공문':'기타'));
   $('#fStatus').value=t?t.status:'진행 중';
   $('#fRepeat').value=t?(t.repeat||'none'):'none';
   $('#lCat').style.display=isSub?'none':'';
@@ -415,7 +436,7 @@ $('#form').addEventListener('submit',function(e){
   if(editing){
     editing.title=title; editing.memo=memo; editing.due=due;
     if(!editing.parent){
-      editing.cat=$('#fCat').value; editing.repeat=$('#fRepeat').value;
+      editing.cat=curCat; editing.repeat=$('#fRepeat').value;
       descendants(editing.id).forEach(function(d){d.cat=editing.cat}); // 보조 업무는 분류를 따라감
     }
     if(status!==editing.status){setStatus(editing,status)}
@@ -423,7 +444,7 @@ $('#form').addEventListener('submit',function(e){
   }else{
     var t={
       id:uid(),title:title,memo:memo,due:due,
-      cat:parentTask?parentTask.cat:$('#fCat').value,
+      cat:parentTask?parentTask.cat:curCat,
       status:'진행 중',
       repeat:parentTask?'none':$('#fRepeat').value,
       parent:parentTask?parentTask.id:null,
@@ -435,6 +456,164 @@ $('#form').addEventListener('submit',function(e){
   }
   save();render();closeDlg();
 });
+
+/* ---------- 길게 눌러 끌어서 옮기기 ---------- */
+var press=null, drag=null, suppressUntil=0, lastTouch=0;
+var ind=document.createElement('div'); ind.id='dropInd'; ind.hidden=true; document.body.appendChild(ind);
+function blocked(){return Date.now()<suppressUntil}
+
+function bindDrag(card,t){
+  card.addEventListener('touchstart',function(e){
+    if(e.touches.length!==1||e.target.closest('.st'))return;
+    lastTouch=Date.now();
+    beginPress(card,t,e.touches[0].clientX,e.touches[0].clientY);
+  },{passive:true});
+  card.addEventListener('mousedown',function(e){
+    if(e.button!==0||Date.now()-lastTouch<800||e.target.closest('.st'))return;
+    beginPress(card,t,e.clientX,e.clientY);
+  });
+  card.addEventListener('contextmenu',function(e){e.preventDefault()});
+}
+function attachGlobal(){
+  document.addEventListener('touchmove',onTouchMove,{passive:false});
+  document.addEventListener('touchend',onTouchEnd);
+  document.addEventListener('touchcancel',onTouchCancel);
+  document.addEventListener('mousemove',onMouseMove);
+  document.addEventListener('mouseup',onMouseUp);
+}
+function detachGlobal(){
+  document.removeEventListener('touchmove',onTouchMove);
+  document.removeEventListener('touchend',onTouchEnd);
+  document.removeEventListener('touchcancel',onTouchCancel);
+  document.removeEventListener('mousemove',onMouseMove);
+  document.removeEventListener('mouseup',onMouseUp);
+}
+function onTouchMove(e){
+  var p=e.touches[0]; if(!p)return;
+  if(drag&&e.cancelable)e.preventDefault();   // 끌고 있는 동안은 화면 스크롤 막기
+  moveTo(p.clientX,p.clientY);
+}
+function onTouchEnd(e){if(drag&&e.cancelable)e.preventDefault();endPress(true)}
+function onTouchCancel(){endPress(false)}
+function onMouseMove(e){moveTo(e.clientX,e.clientY)}
+function onMouseUp(){endPress(true)}
+
+function beginPress(card,t,x,y){
+  cancelPress(); detachGlobal(); attachGlobal();
+  press={card:card,t:t,x:x,y:y,timer:setTimeout(startDrag,420)};
+}
+function cancelPress(){if(press){clearTimeout(press.timer);press=null}}
+function endPress(apply){
+  cancelPress();
+  if(drag)finishDrag(apply);
+  detachGlobal();
+}
+function moveTo(x,y){
+  if(!drag){
+    // 길게 누르기 전에 손가락이 움직이면 '스크롤'로 보고 취소
+    if(press&&(Math.abs(x-press.x)>8||Math.abs(y-press.y)>8))cancelPress();
+    return;
+  }
+  drag.x=x; drag.y=y;
+  drag.ghost.style.left=(x-drag.offX)+'px';
+  drag.ghost.style.top=(y-drag.offY)+'px';
+  updateTarget();
+}
+function startDrag(){
+  var p=press; if(!p)return;
+  var r=p.card.getBoundingClientRect();
+  var ghost=p.card.cloneNode(true);
+  ghost.classList.add('ghost'); ghost.classList.remove('sel','lifted');
+  ghost.style.width=r.width+'px'; ghost.style.left=r.left+'px'; ghost.style.top=r.top+'px';
+  document.body.appendChild(ghost);
+  p.card.classList.add('lifted');
+  document.body.classList.add('dragging');
+  drag={t:p.t,card:p.card,li:p.card.parentNode,ghost:ghost,offX:p.x-r.left,offY:p.y-r.top,x:p.x,y:p.y,target:null,raf:0};
+  if(navigator.vibrate){try{navigator.vibrate(25)}catch(e){}}
+  loop();
+}
+/* 화면 위/아래 가장자리에 가면 자동 스크롤 */
+function loop(){
+  if(!drag)return;
+  var y=drag.y, v=0, edge=90;
+  if(y<edge)v=-Math.ceil((edge-y)/6);
+  else if(y>window.innerHeight-edge)v=Math.ceil((y-(window.innerHeight-edge))/6);
+  if(v){window.scrollBy(0,v);updateTarget()}
+  drag.raf=requestAnimationFrame(loop);
+}
+/* 손가락 위치 → 놓았을 때의 결과(어느 업무의 보조 업무로 / 어느 카드 앞으로) 계산 + 윤곽선 표시 */
+function updateTarget(){
+  var y=drag.y;
+  var cards=Array.prototype.filter.call(document.querySelectorAll('#list .card'),function(c){return !drag.li.contains(c)});
+  drag.target=null; ind.hidden=true;
+  if(!cards.length)return;
+  var rects=cards.map(function(c){return c.getBoundingClientRect()});
+  var hit=-1,i;
+  for(i=0;i<cards.length;i++){if(y>=rects[i].top&&y<=rects[i].bottom){hit=i;break}}
+  var zone;
+  if(hit<0){ // 카드 사이 틈이나 목록 밖: 가장 가까운 카드의 가장자리로 판단
+    var bd=Infinity;
+    for(i=0;i<cards.length;i++){
+      var dist=y<rects[i].top?rects[i].top-y:(y>rects[i].bottom?y-rects[i].bottom:0);
+      if(dist<bd){bd=dist;hit=i}
+    }
+    zone=y<rects[hit].top?'top':'bottom';
+  }else{
+    var rel=(y-rects[hit].top)/(rects[hit].height||1);
+    zone=rel<0.28?'top':(rel>0.72?'bottom':'into');
+  }
+  var X=cards[hit].__t, rX=rects[hit], res;
+  if(zone==='into'){
+    res={parent:X.id,before:null,ring:rX};
+  }else if(zone==='top'){
+    res={parent:X.parent||null,before:X.id,line:{x:rX.left,w:rX.width,y:rX.top-4}};
+  }else{
+    var N=cards[hit+1];
+    if(N){
+      var nt=N.__t, rN=rects[hit+1];
+      res={parent:nt.parent||null,before:nt.id,line:{x:rN.left,w:rN.width,y:(rX.bottom+rN.top)/2}};
+    }else{
+      res={parent:X.parent||null,before:null,line:{x:rX.left,w:rX.width,y:rX.bottom+4}};
+    }
+  }
+  drag.target=res;
+  ind.hidden=false;
+  if(res.ring){
+    ind.className='ring';
+    ind.style.left=res.ring.left+'px'; ind.style.top=res.ring.top+'px';
+    ind.style.width=res.ring.width+'px'; ind.style.height=res.ring.height+'px';
+  }else{
+    ind.className='line';
+    ind.style.left=res.line.x+'px'; ind.style.top=(res.line.y-2)+'px';
+    ind.style.width=res.line.w+'px'; ind.style.height='';
+  }
+}
+function finishDrag(apply){
+  var d=drag; drag=null;
+  cancelAnimationFrame(d.raf);
+  d.ghost.remove(); d.card.classList.remove('lifted');
+  ind.hidden=true; document.body.classList.remove('dragging');
+  suppressUntil=Date.now()+500;            // 손가락을 뗄 때 생기는 클릭이 버튼을 누르지 않게
+  if(apply&&d.target)applyMove(d.t,d.target);
+}
+function applyMove(t,res){
+  var np=res.parent?byId(res.parent):null;
+  if(np){
+    if(np.id===t.id)return;
+    if(descendants(t.id).some(function(x){return x.id===np.id}))return; // 자기 하위로는 이동 불가
+    if(!t.parent&&t.repeat&&t.repeat!=='none'&&!confirm('보조 업무로 옮기면 이 업무의 반복 설정이 해제됩니다. 계속할까요?'))return;
+  }
+  tasks.splice(tasks.indexOf(t),1);
+  t.parent=np?np.id:null;
+  var i=res.before?tasks.findIndex(function(x){return x.id===res.before}):-1;
+  if(i>=0)tasks.splice(i,0,t); else tasks.push(t);
+  if(np){ // 보조 업무가 되면 상위 업무의 분류를 따르고 반복은 해제
+    t.repeat='none';
+    t.cat=np.cat;
+    descendants(t.id).forEach(function(d){d.cat=np.cat});
+  }
+  selectedId=null; save(); render();
+}
 
 /* ---------- 필터 ---------- */
 function bindSeg(sel,cb){
