@@ -379,7 +379,7 @@ function openDlg(t,parent){
   $('#dParent').textContent=pt?('상위 업무: '+pt.title):'';
   $('#fTitle').value=t?t.title:'';
   $('#fMemo').value=t?(t.memo||''):'';
-  $('#fDue').value=t?(t.due||''):'';
+  $('#fDue').value=t?(t.due||''):(parent?'':today()); // 새 할 일은 마감일 기본값=오늘 (보조 업무는 비워 둠)
   $('#fCat').value=t?t.cat:(catFilter!=='전체'?catFilter:CATS[0]);
   $('#fStatus').value=t?t.status:'진행 중';
   $('#fRepeat').value=t?(t.repeat||'none'):'none';
