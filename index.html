@@ -93,6 +93,11 @@ body.dragging{user-select:none;-webkit-user-select:none}
 #qClear{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;background:none;color:var(--sub);font-size:16px}
 mark{background:rgba(255,200,0,.45);color:inherit;border-radius:3px;padding:0 1px}
 body.searching .seg,body.searching .chips{opacity:.4;pointer-events:none}
+
+.swrap{position:relative}
+.swrap .card{position:relative;touch-action:pan-y}
+.sbg{position:absolute;top:0;right:0;bottom:0;left:0;border-radius:14px;background:var(--pri);color:var(--pri-t);display:flex;align-items:center;justify-content:flex-end;padding-right:18px;font-weight:700;visibility:hidden;opacity:0}
+.sbg.l{background:var(--text);color:var(--bg);justify-content:flex-start;padding-left:18px;padding-right:0}
 </style>
 </head>
 <body>
@@ -355,7 +360,11 @@ function node(t,depth){
   st.setAttribute('aria-label','상태 변경: 현재 '+t.status);
   st.addEventListener('click',function(){if(blocked())return;cycle(t)});
 
-  card.appendChild(body); card.appendChild(st); li.appendChild(card);
+  card.appendChild(body); card.appendChild(st);
+  var wrap=document.createElement('div'); wrap.className='swrap';
+  var sbgL=document.createElement('div'); sbgL.className='sbg l'; sbgL.textContent='✎ 편집';
+  var sbgR=document.createElement('div'); sbgR.className='sbg r'; sbgR.textContent='＋ 보조 업무';
+  wrap.appendChild(sbgL); wrap.appendChild(sbgR); wrap.appendChild(card); li.appendChild(wrap);
 
   if(selectedId===t.id){
     var bar=document.createElement('div'); bar.className='actions';
@@ -479,12 +488,12 @@ function blocked(){return Date.now()<suppressUntil}
 
 function bindDrag(card,t){
   card.addEventListener('touchstart',function(e){
-    if(query||e.touches.length!==1||e.target.closest('.st'))return;
+    if(e.touches.length!==1||e.target.closest('.st'))return;
     lastTouch=Date.now();
     beginPress(card,t,e.touches[0].clientX,e.touches[0].clientY);
   },{passive:true});
   card.addEventListener('mousedown',function(e){
-    if(query||e.button!==0||Date.now()-lastTouch<800||e.target.closest('.st'))return;
+    if(e.button!==0||Date.now()-lastTouch<800||e.target.closest('.st'))return;
     beginPress(card,t,e.clientX,e.clientY);
   });
   card.addEventListener('contextmenu',function(e){e.preventDefault()});
@@ -505,10 +514,10 @@ function detachGlobal(){
 }
 function onTouchMove(e){
   var p=e.touches[0]; if(!p)return;
-  if(drag&&e.cancelable)e.preventDefault();   // 끌고 있는 동안은 화면 스크롤 막기
+  if((drag||(press&&press.swipe))&&e.cancelable)e.preventDefault();   // 끌거나 밀고 있는 동안은 화면 스크롤 막기
   moveTo(p.clientX,p.clientY);
 }
-function onTouchEnd(e){if(drag&&e.cancelable)e.preventDefault();endPress(true)}
+function onTouchEnd(e){if((drag||(press&&press.swipe))&&e.cancelable)e.preventDefault();endPress(true)}
 function onTouchCancel(){endPress(false)}
 function onMouseMove(e){moveTo(e.clientX,e.clientY)}
 function onMouseUp(){endPress(true)}
@@ -519,23 +528,63 @@ function beginPress(card,t,x,y){
 }
 function cancelPress(){if(press){clearTimeout(press.timer);press=null}}
 function endPress(apply){
+  if(press&&press.swipe)swipeEnd(apply);
   cancelPress();
   if(drag)finishDrag(apply);
   detachGlobal();
 }
+/* 왼쪽으로 밀기 → 보조 업무 추가 / 오른쪽으로 밀기 → 편집 */
+var SWIPE_OK=80;
+function swipeStart(){
+  press.wrap=press.card.parentNode;
+  press.wrap.classList.add('swiping');
+  press.card.style.transition='none';
+}
+function swipeMove(dx){
+  var d=Math.max(-140,Math.min(140,dx));
+  press.card.style.transform=d?'translateX('+d+'px)':'';
+  var L=press.wrap.querySelector('.sbg.l'), R=press.wrap.querySelector('.sbg.r');
+  L.style.visibility=d>0?'visible':'hidden'; L.style.opacity=d>0?Math.min(1,d/SWIPE_OK):0;
+  R.style.visibility=d<0?'visible':'hidden'; R.style.opacity=d<0?Math.min(1,-d/SWIPE_OK):0;
+  var ready=Math.abs(d)>=SWIPE_OK;
+  if(ready&&!press.ready&&navigator.vibrate){try{navigator.vibrate(15)}catch(e){}}
+  press.ready=ready; press.dir=d>0?1:(d<0?-1:0);
+}
+function swipeEnd(apply){
+  var card=press.card, wrap=press.wrap, t=press.t, ready=press.ready, dir=press.dir;
+  card.style.transition='transform .18s'; card.style.transform='';
+  setTimeout(function(){
+    card.style.transition=''; wrap.classList.remove('swiping');
+    Array.prototype.forEach.call(wrap.querySelectorAll('.sbg'),function(b){b.style.visibility='hidden';b.style.opacity=0});
+  },200);
+  suppressUntil=Date.now()+500;
+  if(apply&&ready){
+    if(dir<0)openDlg(null,t);      // 왼쪽 → 보조 업무 추가
+    else if(dir>0)openDlg(t,null); // 오른쪽 → 편집
+  }
+}
 function moveTo(x,y){
   if(!drag){
-    // 길게 누르기 전에 손가락이 움직이면 '스크롤'로 보고 취소
-    if(press&&(Math.abs(x-press.x)>8||Math.abs(y-press.y)>8))cancelPress();
+    if(!press)return;
+    var dx=x-press.x, dy=y-press.y;
+    if(press.swipe){swipeMove(dx);return}
+    if(Math.abs(dx)>12&&Math.abs(dx)>Math.abs(dy)*1.5){ // 가로로 미는 동작
+      clearTimeout(press.timer); press.swipe=true; swipeStart(); swipeMove(dx); return;
+    }
+    // 길게 누르기 전에 손가락이 세로로 움직이면 '스크롤'로 보고 취소
+    if(Math.abs(dx)>8||Math.abs(dy)>8)cancelPress();
     return;
   }
   drag.x=x; drag.y=y;
+  if(!drag.moved&&Math.abs(x-drag.sx)+Math.abs(y-drag.sy)>10)drag.moved=true;
+  if(drag.search)return;                     // 검색 중에는 옮기기 없이 편집만
   drag.ghost.style.left=(x-drag.offX)+'px';
   drag.ghost.style.top=(y-drag.offY)+'px';
   updateTarget();
 }
+/* 길게 누르면 카드가 들려서 끌어 옮길 수 있음 (검색 중에는 꺼짐) */
 function startDrag(){
-  var p=press; if(!p)return;
+  var p=press; if(!p||query)return;
   var r=p.card.getBoundingClientRect();
   var ghost=p.card.cloneNode(true);
   ghost.classList.add('ghost'); ghost.classList.remove('sel','lifted');
@@ -543,7 +592,8 @@ function startDrag(){
   document.body.appendChild(ghost);
   p.card.classList.add('lifted');
   document.body.classList.add('dragging');
-  drag={t:p.t,card:p.card,li:p.card.parentNode,ghost:ghost,offX:p.x-r.left,offY:p.y-r.top,x:p.x,y:p.y,target:null,raf:0};
+  drag={t:p.t,card:p.card,li:p.card.closest('li.node'),ghost:ghost,offX:p.x-r.left,offY:p.y-r.top,
+        x:p.x,y:p.y,sx:p.x,sy:p.y,moved:false,search:false,target:null,raf:0};
   if(navigator.vibrate){try{navigator.vibrate(25)}catch(e){}}
   loop();
 }
@@ -606,10 +656,11 @@ function updateTarget(){
 function finishDrag(apply){
   var d=drag; drag=null;
   cancelAnimationFrame(d.raf);
-  d.ghost.remove(); d.card.classList.remove('lifted');
+  if(d.ghost)d.ghost.remove();
+  d.card.classList.remove('lifted');
   ind.hidden=true; document.body.classList.remove('dragging');
   suppressUntil=Date.now()+500;            // 손가락을 뗄 때 생기는 클릭이 버튼을 누르지 않게
-  if(apply&&d.target)applyMove(d.t,d.target);
+  if(apply&&d.moved&&d.target)applyMove(d.t,d.target);
 }
 function applyMove(t,res){
   var np=res.parent?byId(res.parent):null;
