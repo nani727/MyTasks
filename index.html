@@ -20,7 +20,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,"Noto Sans KR","Malgun Gothic",system-ui,sans-serif;font-size:16px;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-.wrap{max-width:640px;margin:0 auto;padding:0 14px 90px}
+.wrap{max-width:640px;margin:0 auto;padding:0 22px 90px}
 header{display:flex;align-items:center;justify-content:space-between;padding:16px 0 8px}
 h1{font-size:22px;margin:0}
 .sub-txt{color:var(--sub);font-size:13px}
@@ -488,12 +488,12 @@ function blocked(){return Date.now()<suppressUntil}
 
 function bindDrag(card,t){
   card.addEventListener('touchstart',function(e){
-    if(e.touches.length!==1||e.target.closest('.st'))return;
+    if(e.touches.length!==1)return;
     lastTouch=Date.now();
     beginPress(card,t,e.touches[0].clientX,e.touches[0].clientY);
   },{passive:true});
   card.addEventListener('mousedown',function(e){
-    if(e.button!==0||Date.now()-lastTouch<800||e.target.closest('.st'))return;
+    if(e.button!==0||Date.now()-lastTouch<800)return;
     beginPress(card,t,e.clientX,e.clientY);
   });
   card.addEventListener('contextmenu',function(e){e.preventDefault()});
@@ -534,7 +534,7 @@ function endPress(apply){
   detachGlobal();
 }
 /* 왼쪽으로 밀기 → 보조 업무 추가 / 오른쪽으로 밀기 → 편집 */
-var SWIPE_OK=80;
+var SWIPE_OK=56;
 function swipeStart(){
   press.wrap=press.card.parentNode;
   press.wrap.classList.add('swiping');
@@ -568,11 +568,12 @@ function moveTo(x,y){
     if(!press)return;
     var dx=x-press.x, dy=y-press.y;
     if(press.swipe){swipeMove(dx);return}
-    if(Math.abs(dx)>12&&Math.abs(dx)>Math.abs(dy)*1.5){ // 가로로 미는 동작
+    var ax=Math.abs(dx), ay=Math.abs(dy);
+    if(ax+ay<6)return;                        // 아직 방향을 정하기엔 너무 조금 움직임
+    if(ax>ay){                                // 가로가 더 크면 스와이프
       clearTimeout(press.timer); press.swipe=true; swipeStart(); swipeMove(dx); return;
     }
-    // 길게 누르기 전에 손가락이 세로로 움직이면 '스크롤'로 보고 취소
-    if(Math.abs(dx)>8||Math.abs(dy)>8)cancelPress();
+    cancelPress();                            // 세로가 더 크면 스크롤로 보고 취소
     return;
   }
   drag.x=x; drag.y=y;
